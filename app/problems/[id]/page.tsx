@@ -81,18 +81,22 @@ export default function ProblemDetailPage() {
       </div>
 
       <div className={styles.section}>
-        <h3><CheckSquare size={16} /> Sample Test Cases</h3>
+        <h3><CheckSquare size={16} /> Test Cases</h3>
         <div className={styles.tests}>
-          {problem.testCases.filter((tc) => tc.isSample).map((tc) => (
+          {problem.testCases.map((tc, idx) => (
             <div key={tc.id} className={styles.testCard}>
+              <div className={styles.testHeader}>
+                <span className={styles.testIndex}>Test {idx + 1}</span>
+                {tc.isSample && <span className={styles.sampleTag}>Sample</span>}
+              </div>
               <div className={styles.testLabel}>Input</div>
               <pre className={styles.pre}>{tc.input}</pre>
               <div className={styles.testLabel}>Expected Output</div>
               <pre className={styles.pre}>{tc.expectedOutput}</pre>
             </div>
           ))}
-          {problem.testCases.filter((tc) => tc.isSample).length === 0 && (
-            <p className={styles.body}>No sample test cases provided.</p>
+          {problem.testCases.length === 0 && (
+            <p className={styles.body}>No test cases provided.</p>
           )}
         </div>
       </div>

@@ -208,7 +208,9 @@ export const contestApi = {
   },
 
   getProblem(id: string): Promise<ProblemResponse> {
-    return request<ProblemResponse>(`${CONTEST_BASE}/problems/${id}`);
+    const requesterId = getUserId();
+    const query = requesterId ? `?requesterId=${encodeURIComponent(requesterId)}` : '';
+    return request<ProblemResponse>(`${CONTEST_BASE}/problems/${id}${query}`);
   },
 
   updateProblem(id: string, data: ProblemRequest): Promise<ProblemResponse> {
@@ -225,7 +227,9 @@ export const contestApi = {
   },
 
   listProblems(): Promise<ProblemResponse[]> {
-    return request<ProblemResponse[]>(`${CONTEST_BASE}/problems`);
+    const createdBy = getUserId();
+    const query = createdBy ? `?createdBy=${encodeURIComponent(createdBy)}` : '';
+    return request<ProblemResponse[]>(`${CONTEST_BASE}/problems${query}`);
   },
 };
 
