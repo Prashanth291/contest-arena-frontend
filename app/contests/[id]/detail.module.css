@@ -179,6 +179,24 @@
   color: var(--accent-amber);
 }
 
+.removeProblemBtn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+}
+
+.removeProblemBtn:hover {
+  color: var(--accent-red);
+  border-color: var(--accent-red);
+}
+
 .emptyProblems {
   padding: var(--space-xl);
   text-align: center;
@@ -187,6 +205,53 @@
   background: var(--bg-secondary);
   border: 1px dashed var(--border-subtle);
   border-radius: var(--radius-md);
+}
+
+/* ── Manage block ───────────────── */
+.manageCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.manageHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.manageTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-weight: 600;
+}
+
+.manageHint {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  transition: color var(--transition-fast);
+}
+
+.manageHint:hover {
+  color: var(--accent-cyan);
+}
+
+.manageGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+
+.manageActions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 /* ── Info Grid ───────────────────── */
@@ -253,5 +318,9 @@
 
   .problemRow {
     flex-wrap: wrap;
+  }
+
+  .manageGrid {
+    grid-template-columns: 1fr;
   }
 }

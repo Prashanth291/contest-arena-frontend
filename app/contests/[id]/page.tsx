@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { contestApi } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import type { ContestResponse } from '@/lib/types';
-import { StatusBadge, DifficultyBadge } from '@/app/components/StatusBadge';
+import { StatusBadge } from '@/app/components/StatusBadge';
 import ContestTimer from '@/app/components/ContestTimer';
 import { toast } from '@/app/components/Toast';
 import {
@@ -17,9 +17,11 @@ import {
   Play,
   LogIn,
   BarChart3,
-  Hash,
   Award,
   Clock,
+  Plus,
+  Trash2,
+  AlertTriangle,
 } from 'lucide-react';
 import styles from './detail.module.css';
 
@@ -38,6 +40,15 @@ export default function ContestDetailPage({
   const [starting, setStarting] = useState(false);
   const [joinPassword, setJoinPassword] = useState('');
   const [showJoinForm, setShowJoinForm] = useState(false);
+  const [assigning, setAssigning] = useState(false);
+  const [removingProblemId, setRemovingProblemId] = useState<string | null>(null);
+  const [deletingContest, setDeletingContest] = useState(false);
+  const [assignForm, setAssignForm] = useState({
+    problemId: '',
+    label: '',
+    problemOrder: 1,
+    score: 500,
+  });
 
   useEffect(() => {
     const fetchContest = async () => {
@@ -54,6 +65,16 @@ export default function ContestDetailPage({
     };
     fetchContest();
   }, [id, router]);
+
+  const refreshContest = async () => {
+    try {
+      const data = await contestApi.getContest(id);
+      setContest(data);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to refresh contest';
+      toast.error(message);
+    }
+  };
 
   const copyJoinCode = async () => {
     if (!contest) return;
@@ -87,13 +108,69 @@ export default function ContestDetailPage({
     try {
       await contestApi.startContest(contest.id);
       toast.success('Contest started!');
-      const updated = await contestApi.getContest(id);
-      setContest(updated);
+      await refreshContest();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to start contest';
       toast.error(message);
     } finally {
       setStarting(false);
+    }
+  };
+
+  const handleAssign = async () => {
+    if (!contest) return;
+    if (!assignForm.problemId.trim() || !assignForm.label.trim()) {
+      toast.error('Problem ID and label are required');
+      return;
+    }
+    setAssigning(true);
+    try {
+      await contestApi.assignProblem(contest.id, {
+        problemId: assignForm.problemId.trim(),
+        label: assignForm.label.trim(),
+        problemOrder: Number(assignForm.problemOrder),
+        score: Number(assignForm.score),
+      });
+      toast.success('Problem assigned');
+      setAssignForm({ problemId: '', label: '', problemOrder: 1, score: 500 });
+      await refreshContest();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to assign problem';
+      toast.error(message);
+    } finally {
+      setAssigning(false);
+    }
+  };
+
+  const handleRemoveProblem = async (problemId: string) => {
+    if (!contest) return;
+    setRemovingProblemId(problemId);
+    try {
+      await contestApi.removeProblemFromContest(contest.id, problemId);
+      toast.success('Problem removed');
+      await refreshContest();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to remove problem';
+      toast.error(message);
+    } finally {
+      setRemovingProblemId(null);
+    }
+  };
+
+  const handleDeleteContest = async () => {
+    if (!contest) return;
+    const confirmDelete = window.confirm('Delete this contest? This cannot be undone.');
+    if (!confirmDelete) return;
+    setDeletingContest(true);
+    try {
+      await contestApi.deleteContest(contest.id);
+      toast.success('Contest deleted');
+      router.push('/contests');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to delete contest';
+      toast.error(message);
+    } finally {
+      setDeletingContest(false);
     }
   };
 
@@ -169,6 +246,17 @@ export default function ContestDetailPage({
                   {starting ? 'Starting...' : 'Start Contest'}
                 </button>
               )}
+              {isCreator && (
+                <button
+                  className="btn btn-danger btn-lg"
+                  onClick={handleDeleteContest}
+                  disabled={deletingContest}
+                  id="contest-delete-btn"
+                >
+                  <AlertTriangle size={18} />
+                  {deletingContest ? 'Deleting...' : 'Delete Contest'}
+                </button>
+              )}
             </>
           ) : (
             <Link href="/auth/login" className="btn btn-primary btn-lg">
@@ -226,6 +314,76 @@ export default function ContestDetailPage({
           <span className={styles.count}>{contest.problems.length}</span>
         </h2>
 
+        {isCreator && (
+          <div className={styles.manageCard}>
+            <div className={styles.manageHeader}>
+              <div className={styles.manageTitle}>
+                <Plus size={16} />
+                Assign Problem
+              </div>
+              <Link href="/problems/create" className={styles.manageHint}>
+                Need to create a problem first? Add one here.
+              </Link>
+            </div>
+            <div className={styles.manageGrid}>
+              <div className="input-group">
+                <label className="input-label" htmlFor="assign-problem-id">Problem ID</label>
+                <input
+                  id="assign-problem-id"
+                  className="input"
+                  placeholder="Existing problem UUID"
+                  value={assignForm.problemId}
+                  onChange={(e) => setAssignForm({ ...assignForm, problemId: e.target.value })}
+                />
+              </div>
+              <div className="input-group">
+                <label className="input-label" htmlFor="assign-label">Label (A, B, C...)</label>
+                <input
+                  id="assign-label"
+                  className="input"
+                  placeholder="A"
+                  value={assignForm.label}
+                  onChange={(e) => setAssignForm({ ...assignForm, label: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className={styles.manageGrid}>
+              <div className="input-group">
+                <label className="input-label" htmlFor="assign-order">Problem Order</label>
+                <input
+                  id="assign-order"
+                  type="number"
+                  className="input"
+                  value={assignForm.problemOrder}
+                  min={0}
+                  onChange={(e) => setAssignForm({ ...assignForm, problemOrder: Number(e.target.value) })}
+                />
+              </div>
+              <div className="input-group">
+                <label className="input-label" htmlFor="assign-score">Score</label>
+                <input
+                  id="assign-score"
+                  type="number"
+                  className="input"
+                  value={assignForm.score}
+                  min={0}
+                  onChange={(e) => setAssignForm({ ...assignForm, score: Number(e.target.value) })}
+                />
+              </div>
+            </div>
+            <div className={styles.manageActions}>
+              <button
+                className="btn btn-primary"
+                onClick={handleAssign}
+                disabled={assigning}
+                id="assign-problem-btn"
+              >
+                {assigning ? 'Assigning...' : 'Assign Problem'}
+              </button>
+            </div>
+          </div>
+        )}
+
         {contest.problems.length === 0 ? (
           <div className={styles.emptyProblems}>
             <p>No problems assigned to this contest yet.</p>
@@ -251,6 +409,21 @@ export default function ContestDetailPage({
                     <Award size={14} />
                     <span className="mono">{problem.score}</span>
                   </div>
+                  {isCreator && (
+                    <button
+                      className={styles.removeProblemBtn}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleRemoveProblem(problem.problemId);
+                      }}
+                      disabled={removingProblemId === problem.problemId}
+                      id={`remove-problem-${problem.problemId}`}
+                    >
+                      <Trash2 size={14} />
+                      {removingProblemId === problem.problemId ? 'Removing...' : 'Remove'}
+                    </button>
+                  )}
                 </Link>
               ))}
           </div>

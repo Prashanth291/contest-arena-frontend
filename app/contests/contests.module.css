@@ -47,6 +47,13 @@
 }
 
 .searchIcon {
+
+.headerActions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  align-items: flex-end;
+}
   position: absolute;
   left: 0.875rem;
   top: 50%;

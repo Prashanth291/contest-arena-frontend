@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth';
 import {
   Trophy,
   Code2,
+  BookOpen,
   Plus,
   LogIn,
   LogOut,
@@ -25,12 +26,11 @@ export default function Navbar() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
-  // Close user menu on outside click
+  // Close menus on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
-        setUserMenuOpen(false);
-      }
+      const target = e.target as Node;
+      if (userMenuRef.current && !userMenuRef.current.contains(target)) setUserMenuOpen(false);
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
@@ -65,6 +65,16 @@ export default function Navbar() {
             <Trophy size={16} />
             Contests
           </Link>
+
+          <Link
+            href="/problems"
+            id="nav-problems"
+            className={`${styles.link} ${isActive('/problems') ? styles.linkActive : ''}`}
+          >
+            <BookOpen size={16} />
+            Problems
+          </Link>
+
           {isAuthenticated && (
             <>
               <Link
@@ -73,7 +83,7 @@ export default function Navbar() {
                 className={`${styles.link} ${isActive('/contests/create') ? styles.linkActive : ''}`}
               >
                 <Plus size={16} />
-                Create
+                Create Contest
               </Link>
               <Link
                 href="/problems/create"
@@ -81,7 +91,7 @@ export default function Navbar() {
                 className={`${styles.link} ${isActive('/problems/create') ? styles.linkActive : ''}`}
               >
                 <Code2 size={16} />
-                Problems
+                Create Problem
               </Link>
             </>
           )}
@@ -158,8 +168,8 @@ export default function Navbar() {
       {/* Mobile Menu */}
       {mobileOpen && (
         <div className={styles.mobileMenu}>
-          <Link href="/contests" className={styles.mobileLink}>
-            <Trophy size={18} /> Contests
+          <Link href="/problems" className={styles.mobileLink}>
+            <BookOpen size={18} /> Problems
           </Link>
           {isAuthenticated && (
             <>

@@ -223,6 +223,10 @@ export const contestApi = {
       method: 'DELETE',
     });
   },
+
+  listProblems(): Promise<ProblemResponse[]> {
+    return request<ProblemResponse[]>(`${CONTEST_BASE}/problems`);
+  },
 };
 
 // ═══════════════════════════════════════════════════════

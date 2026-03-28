@@ -1,11 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { contestApi } from '@/lib/api';
 import type { ContestResponse, ContestStatus } from '@/lib/types';
 import ContestCard from '@/app/components/ContestCard';
 import { toast } from '@/app/components/Toast';
-import { Search, Filter, Trophy, RefreshCw } from 'lucide-react';
+import { Search, Filter, Trophy, RefreshCw, Plus } from 'lucide-react';
 import styles from './contests.module.css';
 
 const statusFilters: Array<{ value: ContestStatus | 'ALL'; label: string }> = [
@@ -73,10 +74,16 @@ export default function ContestsPage() {
           </p>
         </div>
 
-        <button onClick={fetchContests} className="btn btn-secondary" id="contests-refresh">
-          <RefreshCw size={16} />
-          Refresh
-        </button>
+        <div className={styles.headerActions}>
+          <button onClick={fetchContests} className="btn btn-secondary" id="contests-refresh">
+            <RefreshCw size={16} />
+            Refresh
+          </button>
+          <Link href="/contests/create" className="btn btn-primary" id="contests-create-btn">
+            <Plus size={16} />
+            Create Contest
+          </Link>
+        </div>
       </div>
 
       {/* Filters */}
