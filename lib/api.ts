@@ -54,6 +54,18 @@ function getUserId(): string | null {
   }
 }
 
+function getUserRole(): string | null {
+  if (typeof window === 'undefined') return null;
+  const token = getAuthToken();
+  if (!token) return null;
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return payload.role || null;
+  } catch {
+    return null;
+  }
+}
+
 async function request<T>(
   url: string,
   options: RequestInit = {},
@@ -73,7 +85,12 @@ async function request<T>(
     if (userId) {
       headers['X-User-Id'] = userId;
     }
+    const role = getUserRole();
+    if (role) {
+      headers['X-User-Role'] = role;
+    }
   }
+  
 
   const response = await fetch(url, {
     ...options,
@@ -94,8 +111,10 @@ async function request<T>(
     );
   }
 
-  // Handle 204 No Content
-  if (response.status === 204) {
+  // Handle empty responses (204, or successful responses without a body)
+  const contentLength = response.headers.get('content-length');
+  const hasBody = contentLength ? parseInt(contentLength, 10) > 0 : true;
+  if (response.status === 204 || (!hasBody && response.ok)) {
     return undefined as T;
   }
 
@@ -107,6 +126,7 @@ async function request<T>(
 
   return await response.json();
 }
+
 
 // ═══════════════════════════════════════════════════════
 //  AUTH SERVICE API
@@ -193,6 +213,44 @@ export const contestApi = {
     });
   },
 
+  // ── Bulk Assignment ──────────────────────────────────
+  async bulkAssignProblems(
+    contestId: string,
+    problems: ProblemResponse[],
+    opts?: { startOrder?: number; startLabelChar?: number },
+  ): Promise<void> {
+    // Dedupe by problemId to avoid backend "already assigned" errors when the caller
+    // accidentally passes duplicates.
+    const uniqueProblems = Array.from(new Map(problems.map((p) => [p.id, p])).values());
+
+    const startOrder = opts?.startOrder ?? 0;
+    const startLabelChar = opts?.startLabelChar ?? 65; // 'A'
+
+    const assignments = uniqueProblems.map((prob, index) => ({
+      problemId: prob.id,
+      label: String.fromCharCode(startLabelChar + index),
+      problemOrder: startOrder + index,
+      score: prob.baseScore || 100,
+    }));
+
+    // Run sequentially to surface the first meaningful error message (400/409, etc.)
+    for (const req of assignments) {
+      try {
+        await request<void>(`${CONTEST_BASE}/contests/${contestId}/problems`, {
+          method: 'POST',
+          body: JSON.stringify(req),
+        });
+      } catch (err) {
+        // Allow idempotent behavior: if backend says already assigned, skip the rest gracefully
+        const message = err instanceof ApiRequestError ? (err.apiError?.message || err.message || '').toLowerCase() : '';
+        if (message.includes('already assigned')) {
+          continue;
+        }
+        throw err;
+      }
+    }
+  },
+
   removeProblemFromContest(contestId: string, problemId: string): Promise<void> {
     return request<void>(`${CONTEST_BASE}/contests/${contestId}/problems/${problemId}`, {
       method: 'DELETE',
@@ -209,7 +267,11 @@ export const contestApi = {
 
   getProblem(id: string): Promise<ProblemResponse> {
     const requesterId = getUserId();
-    const query = requesterId ? `?requesterId=${encodeURIComponent(requesterId)}` : '';
+    const role = getUserRole();
+    const params = new URLSearchParams();
+    if (requesterId) params.set('requesterId', requesterId);
+    if (role) params.set('requesterRole', role);
+    const query = params.toString() ? `?${params.toString()}` : '';
     return request<ProblemResponse>(`${CONTEST_BASE}/problems/${id}${query}`);
   },
 
@@ -228,8 +290,48 @@ export const contestApi = {
 
   listProblems(): Promise<ProblemResponse[]> {
     const createdBy = getUserId();
-    const query = createdBy ? `?createdBy=${encodeURIComponent(createdBy)}` : '';
+    const role = getUserRole();
+    const params = new URLSearchParams();
+    if (createdBy) params.set('createdBy', createdBy);
+    if (role) params.set('requesterRole', role);
+    const query = params.toString() ? `?${params.toString()}` : '';
     return request<ProblemResponse[]>(`${CONTEST_BASE}/problems${query}`);
+  },
+
+  getContestProblem(contestId: string, problemId: string): Promise<ProblemResponse> {
+    const params = new URLSearchParams();
+    const requesterId = getUserId();
+    const role = getUserRole();
+    if (requesterId) params.set('requesterId', requesterId);
+    if (role) params.set('requesterRole', role);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return request<ProblemResponse>(`${CONTEST_BASE}/contests/${contestId}/problems/${problemId}${query}`);
+  },
+
+  promoteProblem(id: string): Promise<ProblemResponse> {
+    const role = getUserRole();
+    const params = new URLSearchParams();
+    if (role) params.set('requesterRole', role);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return request<ProblemResponse>(`${CONTEST_BASE}/problems/${id}/promote${query}`, {
+      method: 'PUT',
+    });
+  },
+
+  // ── Mock Code Execution ──────────────────────────────
+  async runCodeMock(problemId: string, code: string, language: string, testCases: import('./types').TestCase[]) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    return testCases.map((tc) => {
+      const passed = Math.random() > 0.3;
+      return {
+        id: tc.id,
+        input: tc.input,
+        expectedOutput: tc.expectedOutput,
+        actualOutput: passed ? tc.expectedOutput : (tc.expectedOutput + "\nOops! Extra output."),
+        passed,
+      };
+    });
   },
 };
 
@@ -248,3 +350,5 @@ export const leaderboardApi = {
     return request<string>(`${LEADERBOARD_BASE}/leaderboard/ping`);
   },
 };
+
+

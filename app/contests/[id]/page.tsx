@@ -1,89 +1,127 @@
 'use client';
 
-import { useState, useEffect, use } from 'react';
+import { useEffect, useMemo, useState, use } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { contestApi } from '@/lib/api';
+import type { ContestResponse, ProblemResponse } from '@/lib/types';
 import { useAuth } from '@/lib/auth';
-import type { ContestResponse } from '@/lib/types';
-import { StatusBadge } from '@/app/components/StatusBadge';
-import ContestTimer from '@/app/components/ContestTimer';
 import { toast } from '@/app/components/Toast';
-import {
-  ArrowLeft,
-  BookOpen,
-  Copy,
-  Check,
-  Play,
-  LogIn,
-  BarChart3,
-  Award,
-  Clock,
-  Plus,
-  Trash2,
-  AlertTriangle,
-} from 'lucide-react';
+import { ArrowLeft, Plus, CheckSquare, X, Save, LogIn, Copy, Check, Link2, BarChart3 } from 'lucide-react';
 import styles from './detail.module.css';
 
-export default function ContestDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = use(params);
-  const router = useRouter();
-  const { user, isAuthenticated } = useAuth();
+export default function ContestDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id: contestId } = use(params);
+  const { user } = useAuth();
   const [contest, setContest] = useState<ContestResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [copied, setCopied] = useState(false);
-  const [joining, setJoining] = useState(false);
-  const [starting, setStarting] = useState(false);
-  const [joinPassword, setJoinPassword] = useState('');
+  const [now, setNow] = useState<number>(Date.now());
+  
+  // Bulk Assign Modal State
+  const [showModal, setShowModal] = useState(false);
+  const [allProblems, setAllProblems] = useState<ProblemResponse[]>([]);
+  const [selectedProblems, setSelectedProblems] = useState<Set<string>>(new Set());
+  const [isAssigning, setIsAssigning] = useState(false);
   const [showJoinForm, setShowJoinForm] = useState(false);
-  const [assigning, setAssigning] = useState(false);
-  const [removingProblemId, setRemovingProblemId] = useState<string | null>(null);
-  const [deletingContest, setDeletingContest] = useState(false);
-  const [assignForm, setAssignForm] = useState({
-    problemId: '',
-    label: '',
-    problemOrder: 1,
-    score: 500,
-  });
+  const [joinPassword, setJoinPassword] = useState('');
+  const [joining, setJoining] = useState(false);
+  const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    const fetchContest = async () => {
-      try {
-        const data = await contestApi.getContest(id);
-        setContest(data);
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : 'Failed to load contest';
-        toast.error(message);
-        router.push('/contests');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchContest();
-  }, [id, router]);
-
-  const refreshContest = async () => {
+  const loadContest = async () => {
     try {
-      const data = await contestApi.getContest(id);
+      const data = await contestApi.getContest(contestId);
       setContest(data);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to refresh contest';
-      toast.error(message);
+    } catch {
+      toast.error('Failed to load contest');
     }
   };
+
+  const openBulkModal = async () => {
+    try {
+      const data = await contestApi.listProblems();
+      // Filter out problems already in the contest
+      const existingIds = contest?.problems.map(p => p.problemId) || [];
+      setAllProblems(data.filter(p => !existingIds.includes(p.id)));
+      setShowModal(true);
+    } catch {
+      toast.error('Failed to load global problem bank');
+    }
+  };
+
+  const handleBulkAssign = async () => {
+    if (selectedProblems.size === 0) return toast.warning('Select at least one problem');
+    setIsAssigning(true);
+    
+    try {
+      const problemsToAssign = allProblems.filter(p => selectedProblems.has(p.id));
+      const startOrder = contest?.problems.reduce((max, p) => Math.max(max, p.problemOrder ?? -1), -1) + 1;
+      const startLabelChar = contest?.problems.reduce((max, p) => Math.max(max, (p.label?.charCodeAt(0) ?? 64)), 64) + 1;
+      await contestApi.bulkAssignProblems(contestId, problemsToAssign, { startOrder, startLabelChar });
+      
+      toast.success(`Successfully assigned ${selectedProblems.size} problems!`);
+      setShowModal(false);
+      setSelectedProblems(new Set());
+      loadContest(); // Refresh contest data to show new problems
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to assign problems');
+    } finally {
+      setIsAssigning(false);
+    }
+  };
+
+  const toggleSelection = (problemId: string) => {
+    const newSet = new Set(selectedProblems);
+    if (newSet.has(problemId)) newSet.delete(problemId);
+    else newSet.add(problemId);
+    setSelectedProblems(newSet);
+  };
+
+  useEffect(() => { loadContest(); }, [contestId]);
+
+  // Live clock for countdowns
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const isCreator = user?.userId === contest?.createdBy;
+  const isAdmin = user?.role === 'ADMIN';
+  const canManage = isAdmin || isCreator;
+  const canAssignProblems = canManage && contest?.status !== 'ACTIVE' && contest?.status !== 'ENDED';
+  const isParticipant = contest?.registered === true;
+  const canViewProblems = canManage || isParticipant;
+  const canJoin = !!user && !isCreator && !isParticipant && contest && (contest.status === 'ACTIVE' || contest.status === 'SCHEDULED');
+
+  const countdown = useMemo(() => {
+    if (!contest) return { label: '', value: '' };
+    const start = new Date(contest.startTime).getTime();
+    const end = new Date(contest.endTime).getTime();
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const format = (ms: number) => {
+      const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+      const days = Math.floor(totalSeconds / 86400);
+      const hours = Math.floor((totalSeconds % 86400) / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+      const dayPart = days > 0 ? `${days}d ` : '';
+      return `${dayPart}${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+    };
+
+    if (contest.status === 'ACTIVE') {
+      return { label: 'Ends in', value: format(end - now) };
+    }
+    if (contest.status === 'ENDED') {
+      return { label: 'Contest ended', value: '' };
+    }
+    return { label: 'Starts in', value: format(start - now) };
+  }, [contest, now]);
 
   const copyJoinCode = async () => {
     if (!contest) return;
     try {
       await navigator.clipboard.writeText(contest.joinCode);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setTimeout(() => setCopied(false), 1800);
     } catch {
-      // pass
+      /* noop */
     }
   };
 
@@ -91,10 +129,12 @@ export default function ContestDetailPage({
     if (!contest) return;
     setJoining(true);
     try {
-      await contestApi.joinContest(contest.joinCode, { password: joinPassword || undefined });
+      await contestApi.joinContest(contest.joinCode, { password: contest.requiresPassword ? joinPassword || undefined : undefined });
       toast.success('Successfully joined contest!');
       setShowJoinForm(false);
-    } catch (err: unknown) {
+      setJoinPassword('');
+      await loadContest();
+    } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to join contest';
       toast.error(message);
     } finally {
@@ -102,364 +142,168 @@ export default function ContestDetailPage({
     }
   };
 
-  const handleStart = async () => {
-    if (!contest) return;
-    setStarting(true);
-    try {
-      await contestApi.startContest(contest.id);
-      toast.success('Contest started!');
-      await refreshContest();
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to start contest';
-      toast.error(message);
-    } finally {
-      setStarting(false);
-    }
-  };
-
-  const handleAssign = async () => {
-    if (!contest) return;
-    if (!assignForm.problemId.trim() || !assignForm.label.trim()) {
-      toast.error('Problem ID and label are required');
-      return;
-    }
-    setAssigning(true);
-    try {
-      await contestApi.assignProblem(contest.id, {
-        problemId: assignForm.problemId.trim(),
-        label: assignForm.label.trim(),
-        problemOrder: Number(assignForm.problemOrder),
-        score: Number(assignForm.score),
-      });
-      toast.success('Problem assigned');
-      setAssignForm({ problemId: '', label: '', problemOrder: 1, score: 500 });
-      await refreshContest();
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to assign problem';
-      toast.error(message);
-    } finally {
-      setAssigning(false);
-    }
-  };
-
-  const handleRemoveProblem = async (problemId: string) => {
-    if (!contest) return;
-    setRemovingProblemId(problemId);
-    try {
-      await contestApi.removeProblemFromContest(contest.id, problemId);
-      toast.success('Problem removed');
-      await refreshContest();
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to remove problem';
-      toast.error(message);
-    } finally {
-      setRemovingProblemId(null);
-    }
-  };
-
-  const handleDeleteContest = async () => {
-    if (!contest) return;
-    const confirmDelete = window.confirm('Delete this contest? This cannot be undone.');
-    if (!confirmDelete) return;
-    setDeletingContest(true);
-    try {
-      await contestApi.deleteContest(contest.id);
-      toast.success('Contest deleted');
-      router.push('/contests');
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to delete contest';
-      toast.error(message);
-    } finally {
-      setDeletingContest(false);
-    }
-  };
-
-  if (loading || !contest) {
-    return (
-      <div className={`container ${styles.page}`}>
-        <div className={styles.loadingWrapper}>
-          <div className={styles.spinner} />
-          <p>Loading contest...</p>
-        </div>
-      </div>
-    );
-  }
-
-  const isCreator = user?.userId === contest.createdBy;
-  const canStart = isCreator && (contest.status === 'DRAFT' || contest.status === 'SCHEDULED');
+  if (!contest) return <div>Loading...</div>;
 
   return (
     <div className={`container ${styles.page}`}>
-      {/* Back link */}
-      <Link href="/contests" className={styles.back} id="contest-back">
-        <ArrowLeft size={16} />
-        Back to Contests
-      </Link>
-
-      {/* Header */}
-      <div className={styles.header}>
-        <div className={styles.headerTop}>
-          <StatusBadge status={contest.status} />
-          <button className={styles.joinCodeBtn} onClick={copyJoinCode} id="contest-copy-code">
-            {copied ? <Check size={14} /> : <Copy size={14} />}
-            <span className="mono">{contest.joinCode}</span>
-          </button>
+      <Link href="/contests" className={styles.back}><ArrowLeft size={16} /> Back to Contests</Link>
+      
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '2rem', gap: '1rem', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+          <h1>{contest.title}</h1>
+          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', color: '#cbd5e1' }}>
+            <span className={`badge badge-outline`}>{contest.status}</span>
+            {countdown.label && countdown.value && (
+              <span style={{ fontWeight: 600 }}>{countdown.label}: <span className="mono">{countdown.value}</span></span>
+            )}
+          </div>
         </div>
 
-        <h1 className={styles.title}>{contest.title}</h1>
-
-        {contest.description && (
-          <p className={styles.description}>{contest.description}</p>
-        )}
-
-        {/* Timer */}
-        <div className={styles.timerWrapper}>
-          <ContestTimer
-            startTime={contest.startTime}
-            endTime={contest.endTime}
-            status={contest.status}
-          />
-        </div>
-
-        {/* Actions */}
-        <div className={styles.actions}>
-          {isAuthenticated ? (
-            <>
-              {(contest.status === 'ACTIVE' || contest.status === 'SCHEDULED') && !showJoinForm && (
-                <button
-                  className="btn btn-primary btn-lg"
-                  onClick={() => setShowJoinForm(true)}
-                  id="contest-join-btn"
-                >
-                  <LogIn size={18} />
-                  Join Contest
-                </button>
-              )}
-              {canStart && (
-                <button
-                  className="btn btn-primary btn-lg"
-                  onClick={handleStart}
-                  disabled={starting}
-                  id="contest-start-btn"
-                >
-                  <Play size={18} />
-                  {starting ? 'Starting...' : 'Start Contest'}
-                </button>
-              )}
-              {isCreator && (
-                <button
-                  className="btn btn-danger btn-lg"
-                  onClick={handleDeleteContest}
-                  disabled={deletingContest}
-                  id="contest-delete-btn"
-                >
-                  <AlertTriangle size={18} />
-                  {deletingContest ? 'Deleting...' : 'Delete Contest'}
-                </button>
-              )}
-            </>
-          ) : (
-            <Link href="/auth/login" className="btn btn-primary btn-lg">
-              <LogIn size={18} />
-              Sign in to Join
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+          {canManage && contest.status !== 'ACTIVE' && contest.status !== 'ENDED' && (
+            <button className="btn btn-secondary" onClick={async () => {
+              try {
+                await contestApi.startContest(contestId);
+                toast.success('Contest started');
+                loadContest();
+              } catch (err) {
+                const message = err instanceof Error ? err.message : 'Failed to start contest';
+                toast.error(message);
+              }
+            }}>
+              Start Contest
+            </button>
+          )}
+          {(canManage || isParticipant) && (
+            <Link href={`/contests/${contestId}/leaderboard`} className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+              <BarChart3 size={16} /> Leaderboard
             </Link>
           )}
-
-          <Link
-            href={`/contests/${id}/leaderboard`}
-            className="btn btn-secondary btn-lg"
-            id="contest-leaderboard-btn"
-          >
-            <BarChart3 size={18} />
-            Leaderboard
-          </Link>
+          {canAssignProblems && (
+            <button className="btn btn-primary" onClick={openBulkModal}>
+              <Plus size={16} /> Add Problems
+            </button>
+          )}
+          {canJoin && !showJoinForm && (
+            <button className="btn btn-primary" onClick={() => setShowJoinForm(true)}>
+              <LogIn size={16} /> Join Contest
+            </button>
+          )}
         </div>
-
-        {/* Join form */}
-        {showJoinForm && (
-          <div className={styles.joinForm}>
-            <input
-              type="password"
-              className="input"
-              placeholder="Contest password (if required)"
-              value={joinPassword}
-              onChange={(e) => setJoinPassword(e.target.value)}
-              id="contest-join-password"
-            />
-            <div className={styles.joinFormBtns}>
-              <button
-                className="btn btn-primary"
-                onClick={handleJoin}
-                disabled={joining}
-                id="contest-join-submit"
-              >
-                {joining ? 'Joining...' : 'Confirm Join'}
-              </button>
-              <button
-                className="btn btn-ghost"
-                onClick={() => setShowJoinForm(false)}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* Problems list */}
-      <div className={styles.section}>
-        <h2 className={styles.sectionTitle}>
-          <BookOpen size={22} />
-          Problems
-          <span className={styles.count}>{contest.problems.length}</span>
-        </h2>
-
-        {isCreator && (
-          <div className={styles.manageCard}>
-            <div className={styles.manageHeader}>
-              <div className={styles.manageTitle}>
-                <Plus size={16} />
-                Assign Problem
-              </div>
-              <Link href="/problems/create" className={styles.manageHint}>
-                Need to create a problem first? Add one here.
-              </Link>
-            </div>
-            <div className={styles.manageGrid}>
-              <div className="input-group">
-                <label className="input-label" htmlFor="assign-problem-id">Problem ID</label>
-                <input
-                  id="assign-problem-id"
-                  className="input"
-                  placeholder="Existing problem UUID"
-                  value={assignForm.problemId}
-                  onChange={(e) => setAssignForm({ ...assignForm, problemId: e.target.value })}
-                />
-              </div>
-              <div className="input-group">
-                <label className="input-label" htmlFor="assign-label">Label (A, B, C...)</label>
-                <input
-                  id="assign-label"
-                  className="input"
-                  placeholder="A"
-                  value={assignForm.label}
-                  onChange={(e) => setAssignForm({ ...assignForm, label: e.target.value })}
-                />
-              </div>
-            </div>
-            <div className={styles.manageGrid}>
-              <div className="input-group">
-                <label className="input-label" htmlFor="assign-order">Problem Order</label>
-                <input
-                  id="assign-order"
-                  type="number"
-                  className="input"
-                  value={assignForm.problemOrder}
-                  min={0}
-                  onChange={(e) => setAssignForm({ ...assignForm, problemOrder: Number(e.target.value) })}
-                />
-              </div>
-              <div className="input-group">
-                <label className="input-label" htmlFor="assign-score">Score</label>
-                <input
-                  id="assign-score"
-                  type="number"
-                  className="input"
-                  value={assignForm.score}
-                  min={0}
-                  onChange={(e) => setAssignForm({ ...assignForm, score: Number(e.target.value) })}
-                />
-              </div>
-            </div>
-            <div className={styles.manageActions}>
-              <button
-                className="btn btn-primary"
-                onClick={handleAssign}
-                disabled={assigning}
-                id="assign-problem-btn"
-              >
-                {assigning ? 'Assigning...' : 'Assign Problem'}
+      {/* Join Form */}
+      {showJoinForm && canJoin && (
+        <div style={{ marginTop: '1rem', padding: '1rem', background: '#111827', borderRadius: '10px', border: '1px solid var(--border-subtle)', display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
+          {canManage && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <button className="btn btn-secondary" onClick={copyJoinCode} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+                {copied ? <Check size={14} /> : <Copy size={14} />} Copy Join Code
               </button>
+              <span className="mono" style={{ color: '#cbd5e1' }}>{contest.joinCode}</span>
             </div>
+          )}
+          {contest.requiresPassword && (
+            <div style={{ flex: '1 1 240px' }}>
+              <label className="input-label" htmlFor="join-password">Contest Password</label>
+              <input
+                id="join-password"
+                type="password"
+                className="input"
+                placeholder="Enter contest password"
+                value={joinPassword}
+                onChange={(e) => setJoinPassword(e.target.value)}
+              />
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button className="btn btn-secondary" onClick={() => { setShowJoinForm(false); setJoinPassword(''); }}>Cancel</button>
+            <button className="btn btn-primary" onClick={handleJoin} disabled={joining || (contest.requiresPassword && !joinPassword)}>
+              {joining ? 'Joining...' : 'Join Now'}
+            </button>
           </div>
-        )}
+        </div>
+      )}
 
-        {contest.problems.length === 0 ? (
-          <div className={styles.emptyProblems}>
-            <p>No problems assigned to this contest yet.</p>
-          </div>
-        ) : (
-          <div className={styles.problemList}>
-            {contest.problems
-              .sort((a, b) => a.problemOrder - b.problemOrder)
-              .map((problem) => (
+      <div style={{ marginTop: '2rem' }}>
+        <h3>Current Problems ({contest.problems.length})</h3>
+        {canViewProblems ? (
+          <ul style={{ listStyle: 'none', padding: 0 }}>
+            {contest.problems.map((p) => (
+              <li key={p.problemId} style={{ marginBottom: '0.5rem' }}>
                 <Link
-                  key={problem.problemId}
-                  href={`/contests/${id}/problems/${problem.problemId}`}
-                  className={styles.problemRow}
-                  id={`problem-${problem.label}`}
+                  href={`/contests/${contestId}/problems/${p.problemId}`}
+                  style={{ padding: '1rem', background: '#1e1e2e', borderRadius: '8px', display: 'flex', gap: '1rem', alignItems: 'center', color: 'inherit', textDecoration: 'none' }}
                 >
-                  <div className={styles.problemLabel}>
-                    <span className={styles.label}>{problem.label}</span>
-                  </div>
-                  <div className={styles.problemInfo}>
-                    <span className={styles.problemTitle}>{problem.title}</span>
-                  </div>
-                  <div className={styles.problemScore}>
-                    <Award size={14} />
-                    <span className="mono">{problem.score}</span>
-                  </div>
-                  {isCreator && (
-                    <button
-                      className={styles.removeProblemBtn}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        handleRemoveProblem(problem.problemId);
-                      }}
-                      disabled={removingProblemId === problem.problemId}
-                      id={`remove-problem-${problem.problemId}`}
-                    >
-                      <Trash2 size={14} />
-                      {removingProblemId === problem.problemId ? 'Removing...' : 'Remove'}
-                    </button>
-                  )}
+                  <strong>{p.label}</strong> - {p.title} <span style={{ color: '#a1a1aa' }}>({p.score} pts)</span>
                 </Link>
-              ))}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div style={{ padding: '1rem', background: '#0f172a', borderRadius: '10px', border: '1px solid var(--border-subtle)', color: '#cbd5e1', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+            <div>
+              <div style={{ fontWeight: 600 }}>Problems are hidden until you join.</div>
+              <div style={{ color: '#a1a1aa', fontSize: '0.95rem' }}>Join the contest to unlock the problem list and submissions.</div>
+            </div>
+            {canJoin && (
+              <button className="btn btn-primary" onClick={() => setShowJoinForm(true)}>
+                <LogIn size={16} /> Join Contest
+              </button>
+            )}
+            {!user && (
+              <div style={{ color: '#fbbf24', fontSize: '0.9rem' }}>Sign in to join and view problems.</div>
+            )}
           </div>
         )}
       </div>
 
-      {/* Info */}
-      <div className={styles.section}>
-        <h2 className={styles.sectionTitle}>
-          <Clock size={22} />
-          Schedule
-        </h2>
-        <div className={styles.infoGrid}>
-          <div className={styles.infoItem}>
-            <span className={styles.infoLabel}>Start Time</span>
-            <span className={`${styles.infoValue} mono`}>
-              {new Date(contest.startTime).toLocaleString()}
-            </span>
-          </div>
-          <div className={styles.infoItem}>
-            <span className={styles.infoLabel}>End Time</span>
-            <span className={`${styles.infoValue} mono`}>
-              {new Date(contest.endTime).toLocaleString()}
-            </span>
-          </div>
-          <div className={styles.infoItem}>
-            <span className={styles.infoLabel}>Duration</span>
-            <span className={`${styles.infoValue} mono`}>
-              {Math.round(
-                (new Date(contest.endTime).getTime() - new Date(contest.startTime).getTime()) /
-                  1000 / 60,
-              )} minutes
-            </span>
+      {/* BULK ASSIGN MODAL */}
+      {showModal && canManage && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+          <div style={{ background: '#181825', padding: '2rem', borderRadius: '12px', width: '800px', maxHeight: '80vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
+              <h2>Select Problems to Assign</h2>
+              <button onClick={() => setShowModal(false)} style={{ background: 'transparent', border: 'none', color: 'white', cursor: 'pointer' }}><X /></button>
+            </div>
+            
+            <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid #333' }}>
+                  <th style={{ padding: '1rem' }}><CheckSquare size={16} /></th>
+                  <th>Title</th>
+                  <th>Difficulty</th>
+                  <th>Base Score</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allProblems.map(p => (
+                  <tr key={p.id} style={{ borderBottom: '1px solid #222' }}>
+                    <td style={{ padding: '1rem' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={selectedProblems.has(p.id)} 
+                        onChange={() => toggleSelection(p.id)} 
+                        style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                      />
+                    </td>
+                    <td>{p.title}</td>
+                    <td><span className={`${styles.badge} ${styles[`diff-${p.difficulty.toLowerCase()}`]}`}>{p.difficulty}</span></td>
+                    <td>{p.baseScore}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem' }}>
+              <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleBulkAssign} disabled={isAssigning || selectedProblems.size === 0}>
+                {isAssigning ? 'Assigning...' : <><Save size={16} /> Assign {selectedProblems.size} Problems</>}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

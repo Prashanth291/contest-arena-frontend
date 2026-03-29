@@ -58,6 +58,11 @@
   border-color: var(--accent-cyan);
 }
 
+.joinCodeHidden {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+}
+
 .title {
   font-size: var(--text-4xl);
 }
@@ -87,6 +92,11 @@
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   animation: scaleIn 200ms ease-out;
+}
+
+.joinHint {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
 }
 
 .joinFormBtns {

@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef, use } from 'react';
 import Link from 'next/link';
-import { leaderboardApi } from '@/lib/api';
+import { leaderboardApi, contestApi } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 import { connectWebSocket } from '@/lib/websocket';
 import type { LeaderboardEntry, LeaderboardUpdate } from '@/lib/types';
 import { toast } from '@/app/components/Toast';
@@ -25,11 +26,35 @@ export default function LeaderboardPage({
   params: Promise<{ id: string }>;
 }) {
   const { id: contestId } = use(params);
+  const { user, isAuthenticated } = useAuth();
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [wsConnected, setWsConnected] = useState(false);
   const [flashMap, setFlashMap] = useState<Record<string, 'ac' | 'wa'>>({});
   const disconnectRef = useRef<(() => void) | null>(null);
+  const [allowed, setAllowed] = useState(false);
+
+  // Access guard: admin, creator, or registered participant
+  useEffect(() => {
+    const guard = async () => {
+      try {
+        const contest = await contestApi.getContest(contestId);
+        const isCreator = user?.userId && contest.createdBy === user.userId;
+        const isAdmin = user?.role === 'ADMIN';
+        const isParticipant = contest.registered === true;
+        if (isCreator || isAdmin || isParticipant) {
+          setAllowed(true);
+        } else {
+          setAllowed(false);
+          toast.error('Leaderboard visible only to creator, participants, or admins');
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Failed to verify access';
+        toast.error(message);
+      }
+    };
+    guard();
+  }, [contestId, user]);
 
   const fetchLeaderboard = useCallback(async () => {
     try {
@@ -45,11 +70,14 @@ export default function LeaderboardPage({
 
   // Initial load
   useEffect(() => {
-    fetchLeaderboard();
-  }, [fetchLeaderboard]);
+    if (allowed) {
+      fetchLeaderboard();
+    }
+  }, [allowed, fetchLeaderboard]);
 
   // WebSocket connection
   useEffect(() => {
+    if (!allowed) return;
     const disconnect = connectWebSocket(
       contestId,
       (update: LeaderboardUpdate) => {
@@ -106,7 +134,7 @@ export default function LeaderboardPage({
 
     disconnectRef.current = disconnect;
     return () => disconnect();
-  }, [contestId]);
+  }, [contestId, allowed]);
 
   const getRankIcon = (rank: number) => {
     if (rank === 1) return <Medal size={18} style={{ color: '#FFD700' }} />;
@@ -114,6 +142,20 @@ export default function LeaderboardPage({
     if (rank === 3) return <Medal size={18} style={{ color: '#CD7F32' }} />;
     return <span className={styles.rankNumber}>{rank}</span>;
   };
+
+  if (!allowed) {
+    return (
+      <div className={`container ${styles.page}`}>
+        <Link href={`/contests/${contestId}`} className={styles.back} id="leaderboard-back">
+          <ArrowLeft size={16} />
+          Back to Contest
+        </Link>
+        <div className={styles.loading}>
+          <p>Access restricted to creator, participants, or admins.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`container ${styles.page}`}>

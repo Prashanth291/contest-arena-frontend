@@ -71,6 +71,8 @@ export interface ContestResponse {
   createdBy: string;
   joinCode: string;
   problems: ContestProblemSummary[];
+  registered?: boolean;
+  requiresPassword?: boolean;
 }
 
 export interface AssignProblemRequest {
@@ -106,6 +108,7 @@ export interface ProblemRequest {
 }
 
 export interface ProblemResponse {
+  visibility: string;
   id: string;
   title: string;
   description: string;

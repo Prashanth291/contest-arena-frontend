@@ -4,8 +4,7 @@ import Link from 'next/link';
 import type { ContestResponse } from '@/lib/types';
 import { StatusBadge } from './StatusBadge';
 import ContestTimer from './ContestTimer';
-import { Users, BookOpen, Copy, Check } from 'lucide-react';
-import { useState } from 'react';
+import { Users, BookOpen } from 'lucide-react';
 import styles from './ContestCard.module.css';
 
 interface ContestCardProps {
@@ -14,19 +13,6 @@ interface ContestCardProps {
 }
 
 export default function ContestCard({ contest, index = 0 }: ContestCardProps) {
-  const [copied, setCopied] = useState(false);
-
-  const copyJoinCode = async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    try {
-      await navigator.clipboard.writeText(contest.joinCode);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard not available
-    }
-  };
 
   return (
     <Link
@@ -39,14 +25,6 @@ export default function ContestCard({ contest, index = 0 }: ContestCardProps) {
 
       <div className={styles.header}>
         <StatusBadge status={contest.status} />
-        <button
-          className={styles.joinCode}
-          onClick={copyJoinCode}
-          title="Copy join code"
-        >
-          {copied ? <Check size={12} /> : <Copy size={12} />}
-          <span className="mono">{contest.joinCode}</span>
-        </button>
       </div>
 
       <h3 className={styles.title}>{contest.title}</h3>

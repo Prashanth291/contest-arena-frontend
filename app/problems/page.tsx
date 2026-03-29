@@ -4,8 +4,9 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { contestApi } from '@/lib/api';
 import type { Difficulty, ProblemResponse } from '@/lib/types';
+import { useAuth } from '@/lib/auth';
 import { toast } from '@/app/components/Toast';
-import { Plus, Copy, Check, Search, Filter, BookOpen, ShieldCheck, RefreshCw } from 'lucide-react';
+import { Plus, Copy, Check, Search, Filter, BookOpen, ShieldCheck, RefreshCw, User as UserIcon, Globe } from 'lucide-react';
 import styles from './problems.module.css';
 
 const difficultyOptions: Array<{ value: Difficulty | 'ALL'; label: string }> = [
@@ -16,10 +17,12 @@ const difficultyOptions: Array<{ value: Difficulty | 'ALL'; label: string }> = [
 ];
 
 export default function ProblemsPage() {
+  const { user } = useAuth();
   const [problems, setProblems] = useState<ProblemResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [difficulty, setDifficulty] = useState<Difficulty | 'ALL'>('ALL');
+  const [activeTab, setActiveTab] = useState<'GLOBAL' | 'MINE'>('GLOBAL');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const load = async () => {
@@ -41,6 +44,7 @@ export default function ProblemsPage() {
 
   const filtered = useMemo(() => {
     return problems
+      .filter((p) => activeTab === 'GLOBAL' || p.createdBy === user?.userId)
       .filter((p) => difficulty === 'ALL' || p.difficulty === difficulty)
       .filter((p) => {
         if (!search.trim()) return true;
@@ -51,7 +55,7 @@ export default function ProblemsPage() {
           (p.description || '').toLowerCase().includes(term)
         );
       });
-  }, [problems, difficulty, search]);
+  }, [problems, difficulty, search, activeTab, user]);
 
   const copyId = async (id: string) => {
     try {
@@ -88,6 +92,22 @@ export default function ProblemsPage() {
       </div>
 
       <div className={styles.filters}>
+        <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.75rem', borderBottom: '1px solid #333', paddingBottom: '0.5rem' }}>
+          <button
+            onClick={() => setActiveTab('GLOBAL')}
+            style={{ padding: '0.5rem 1rem', background: activeTab === 'GLOBAL' ? '#3b82f6' : 'transparent', color: 'white', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '0.5rem', border: 'none', cursor: 'pointer' }}
+          >
+            <Globe size={16} /> Global Bank
+          </button>
+          {(user?.role === 'ADMIN' || user?.role === 'ORGANIZER') && (
+            <button
+              onClick={() => setActiveTab('MINE')}
+              style={{ padding: '0.5rem 1rem', background: activeTab === 'MINE' ? '#3b82f6' : 'transparent', color: 'white', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '0.5rem', border: 'none', cursor: 'pointer' }}
+            >
+              <UserIcon size={16} /> My Problems
+            </button>
+          )}
+        </div>
         <div className={styles.searchBox}>
           <Search size={16} />
           <input

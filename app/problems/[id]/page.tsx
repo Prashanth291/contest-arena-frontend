@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { contestApi } from '@/lib/api';
 import type { ProblemResponse } from '@/lib/types';
+import { useAuth } from '@/lib/auth';
 import { toast } from '@/app/components/Toast';
 import { ArrowLeft, BookOpen, FileInput, FileOutput, AlertTriangle, CheckSquare } from 'lucide-react';
 import styles from './problem.module.css';
@@ -12,9 +13,11 @@ import styles from './problem.module.css';
 export default function ProblemDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const { user } = useAuth();
   const problemId = Array.isArray(params?.id) ? params?.id[0] : params?.id;
   const [problem, setProblem] = useState<ProblemResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [promoting, setPromoting] = useState(false);
 
   useEffect(() => {
     if (!problemId) return;
@@ -57,6 +60,28 @@ export default function ProblemDetailPage() {
           <p className={styles.meta}>Problem ID: <span className="mono">{problem.id}</span></p>
           <p className={styles.meta}>Base Score: <span className="mono">{problem.baseScore}</span></p>
         </div>
+        {user?.role === 'ADMIN' && problem.visibility === 'PRIVATE' && (
+          <button
+            className="btn btn-secondary"
+            onClick={async () => {
+              try {
+                setPromoting(true);
+                const updated = await contestApi.promoteProblem(problem.id);
+                setProblem(updated);
+                toast.success('Promoted to global');
+              } catch (err: unknown) {
+                const message = err instanceof Error ? err.message : 'Failed to promote problem';
+                toast.error(message);
+              } finally {
+                setPromoting(false);
+              }
+            }}
+            disabled={promoting}
+            id="promote-problem"
+          >
+            {promoting ? 'Promoting...' : 'Promote to Global'}
+          </button>
+        )}
       </div>
 
       <div className={styles.section}>
